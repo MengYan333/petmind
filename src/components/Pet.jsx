@@ -14,12 +14,14 @@ const PET_STATES = {
 
 const ANIMATIONS = {
   normal:   { y: [0, -8, 0],                            transition: { duration: 2.5, repeat: Infinity, ease: 'easeInOut' } },
-  thirsty:  { scale: [1, 0.93, 1], rotate: [-2, 2, -2], transition: { duration: 1.2, repeat: Infinity } },
+  thirsty:  { scale: [1, 0.93, 1], y: [0, 2, 0],        transition: { duration: 1.2, repeat: Infinity } },
   sleepy:   { scale: [1, 0.97, 1], y: [0, 3, 0],        transition: { duration: 4,   repeat: Infinity, ease: 'easeInOut' } },
   exercise: { x: [-6, 6, -6],                            transition: { duration: 0.35, repeat: Infinity } },
   hot:      { rotate: [-8, 8, -8],                       transition: { duration: 0.5, repeat: Infinity } },
   happy:    { y: [0, -14, 0],                            transition: { duration: 0.6, repeat: Infinity } },
   rainy:    { y: [0, -4, 0],                             transition: { duration: 3,   repeat: Infinity } },
+  learning: { y: [0, -6, 0],                             transition: { duration: 2,   repeat: Infinity, ease: 'easeInOut' } },
+  news:     { rotate: [-3, 3, -3],                       transition: { duration: 2.5, repeat: Infinity } },
 };
 
 const SIZES = {
