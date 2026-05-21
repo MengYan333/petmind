@@ -30,6 +30,8 @@ export default function DesktopApp() {
   const [isThinking, setIsThinking] = useState(false);
   const [hovered, setHovered]   = useState(false);
   const leaveTimerRef           = useRef(null);
+  const triggerAgentRef         = useRef(null);
+  const nurtureTimerRef         = useRef(null);
   const { nurture, recordLearnRead } = useGrowthSystem();
 
   const addLog = useCallback(() => {}, []);
@@ -53,10 +55,19 @@ export default function DesktopApp() {
     }
   }
 
+  triggerAgentRef.current = triggerAgent;
+
   useEffect(() => {
-    triggerAgent();
-    const id = setInterval(triggerAgent, 10 * 60 * 1000);
+    triggerAgentRef.current?.();
+    const id = setInterval(() => triggerAgentRef.current?.(), 10 * 60 * 1000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(leaveTimerRef.current);
+      clearTimeout(nurtureTimerRef.current);
+    };
   }, []);
 
   function handleMouseEnter() {
@@ -77,7 +88,7 @@ export default function DesktopApp() {
     nurture({ effect: effectMap[id] || 'mood', delta: 10 });
     const prev = petState;
     setPetState('happy');
-    setTimeout(() => setPetState(prev), 1500);
+    nurtureTimerRef.current = setTimeout(() => setPetState(prev), 1500);
   }
 
   const color = STATE_COLORS[petState] || STATE_COLORS.normal;
@@ -106,7 +117,7 @@ export default function DesktopApp() {
 
       <AnimatePresence>
         {hovered && (
-          <div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+          <div key="popup" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
             <CatPopup
               message={message}
               isThinking={isThinking}
