@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getLearningCache, setLearningCache } from '../hooks/useLearningCache';
+import { getNewsCache, setNewsCache } from '../hooks/useNewsCache';
 
 const client = new Anthropic({
   apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
@@ -49,6 +50,21 @@ const TOOLS = [
       required: ['topic'],
     },
   },
+  ,{
+    name: 'fetch_news_summary',
+    description: "Generate a brief summary of today's top news in 3 bullet points, in Chinese.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        categories: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '新闻分类，如 ["科技", "国际", "社会"]',
+        },
+      },
+      required: ['categories'],
+    },
+  }
 ];
 
 export async function runAgent(sensors, habits, userPrefs, onLog) {
@@ -67,8 +83,10 @@ export async function runAgent(sensors, habits, userPrefs, onLog) {
 - 深夜模式：${sensors.time.isLateNight ? '是' : '否'}
 - 用户学习主题：${userPrefs.learningTopic || 'AI大模型'}
 - 今日待提醒习惯：${habits.map(h => h.label).join('、') || '无'}
+- 用户新闻偏好：${(userPrefs.newsCategories || ['科技', '国际', '社会']).join('、')}
 
 优先级规则：
+0. 早晨（8-10点，即 hour >= 8 && hour < 10）→ 先 fetch_news_summary，再 set_pet_state news
 1. 深夜（23点后）→ sleepy（催睡）
 2. 连续使用 ≥ 60分钟 → exercise
 3. 下雨天（Rain/Drizzle/Thunderstorm）→ rainy
@@ -84,6 +102,7 @@ export async function runAgent(sensors, habits, userPrefs, onLog) {
   const messages = [{ role: 'user', content: contextPrompt }];
   let petDecision = null;
   let learningSummary = null;
+  let newsHeadlines = null;
 
   while (true) {
     const response = await client.messages.create({
@@ -127,6 +146,27 @@ export async function runAgent(sensors, habits, userPrefs, onLog) {
             onLog({ type: 'tool', text: `📚 摘要生成并缓存 (${learningSummary.length}字)` });
             result = { summary: learningSummary };
           }
+        } else if (toolUse.name === 'fetch_news_summary') {
+          const cached = getNewsCache();
+          if (cached) {
+            newsHeadlines = cached;
+            onLog({ type: 'tool', text: `📰 使用今日缓存新闻 (${cached.length}字)` });
+            result = { headlines: cached };
+          } else {
+            const cats = (toolUse.input.categories || ['科技', '国际', '社会']).join('、');
+            const newsRes = await client.messages.create({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 300,
+              messages: [{
+                role: 'user',
+                content: `请用3条简短新闻摘要介绍${new Date().toLocaleDateString('zh-CN')}${cats}领域的重要动态，每条一句话不超过30字，用"•"开头。`,
+              }],
+            });
+            newsHeadlines = newsRes.content[0].text;
+            setNewsCache(newsHeadlines);
+            onLog({ type: 'tool', text: `📰 新闻摘要生成并缓存 (${newsHeadlines.length}字)` });
+            result = { headlines: newsHeadlines };
+          }
         }
 
         toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: JSON.stringify(result) });
@@ -139,5 +179,5 @@ export async function runAgent(sensors, habits, userPrefs, onLog) {
     }
   }
 
-  return { petDecision, learningSummary };
+  return { petDecision, learningSummary, newsHeadlines };
 }
