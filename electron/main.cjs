@@ -25,14 +25,14 @@ const PET_STRIP = { height: 160 };
 let win;
 
 function createWindow() {
-  const { x, y, width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   const winY = y + height - PET_STRIP.height;
   console.log('[main] screen size:', width, height);
 
   win = new BrowserWindow({
     width,
     height: PET_STRIP.height,
-    x: 0,
+    x,
     y: winY,
     transparent: true,
     frame: false,
