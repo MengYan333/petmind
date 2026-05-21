@@ -34,37 +34,26 @@ export function useGrowthSystem() {
     return { hunger: d.hunger ?? 70, mood: d.mood ?? 80 };
   });
 
-  // Persist stats to localStorage whenever they change
-  useEffect(() => {
-    setData(prev => {
-      const next = { ...prev, hunger: stats.hunger, mood: stats.mood };
-      saveData(next);
-      return next;
-    });
-  }, [stats]);
-
   // Stats decay: ~3 hunger/hr, ~1 mood/hr (check every 20min)
   useEffect(() => {
     const interval = setInterval(() => {
-      setStats(s => ({
-        hunger: Math.max(0, s.hunger - 1),
-        mood:   Math.max(0, s.mood - 0.33),
-      }));
+      setStats(s => {
+        const next = { hunger: Math.max(0, s.hunger - 1), mood: Math.max(0, s.mood - 0.33) };
+        setData(prev => { const d = { ...prev, ...next }; saveData(d); return d; });
+        return next;
+      });
     }, 20 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
   // Compute 7-day completion rate
-  const completionRate = useCallback(() => {
-    const history = data.habitHistory || [];
-    const last7 = history.slice(-7);
-    if (last7.length === 0) return 0;
-    const done = last7.filter(h => h.completed).length;
-    return Math.round((done / 7) * 100);
-  }, [data]);
+  const history = data.habitHistory || [];
+  const last7   = history.slice(-7);
+  const rate    = last7.length === 0
+    ? 0
+    : Math.round((last7.filter(h => h.completed).length / 7) * 100);
 
   // Current stage (highest threshold that completionRate meets)
-  const rate = completionRate();
   const stage = [...STAGES].reverse().find(s => rate >= s.threshold) || STAGES[0];
 
   // Unlocked achievements
@@ -90,7 +79,9 @@ export function useGrowthSystem() {
     setData(prev => {
       const history  = prev.habitHistory || [];
       const filtered = history.filter(h => h.date !== today);
-      const streak   = (prev.lastDoneDate === new Date(Date.now() - 86400000).toDateString())
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const streak = (prev.lastDoneDate === yesterday.toDateString())
         ? (prev.currentStreak || 0) + 1
         : 1;
       const next = {
