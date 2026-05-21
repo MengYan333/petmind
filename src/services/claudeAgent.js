@@ -50,7 +50,7 @@ const TOOLS = [
       required: ['topic'],
     },
   },
-  ,{
+  {
     name: 'fetch_news_summary',
     description: "Generate a brief summary of today's top news in 3 bullet points, in Chinese.",
     input_schema: {
