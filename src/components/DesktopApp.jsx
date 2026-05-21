@@ -4,6 +4,7 @@ import Pet from './Pet';
 import AgentLog from './AgentLog';
 import { useSensors } from '../hooks/useSensors';
 import { runAgent } from '../services/claudeAgent';
+import { useGrowthSystem } from '../hooks/useGrowthSystem';
 
 const DEFAULT_HABITS = [{ id: 'water', label: '喝水', intervalHours: 2, lastDone: null }];
 const DEFAULT_PREFS  = { learningTopic: 'AI大模型', learningHour: 9 };
@@ -37,7 +38,9 @@ export default function DesktopApp() {
   const [newsHeadlines, setNewsHeadlines] = useState('');
   const [logs, setLogs]           = useState([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [stats, setStats]         = useState({ hunger: 70, mood: 80 });
+  const {
+    stats, nurture, recordHabitDone, recordRainInteraction, recordLearnRead,
+  } = useGrowthSystem();
   const [logOpen, setLogOpen]     = useState(false);
 
   const addLog = useCallback((log) => {
@@ -57,7 +60,10 @@ export default function DesktopApp() {
         setMessage(petDecision.message);
         setActions(petDecision.actions);
       }
-      if (summary) setLearningSummary(summary);
+      if (summary) {
+        setLearningSummary(summary);
+        recordLearnRead();
+      }
       if (news) setNewsHeadlines(news);
     } catch (e) {
       addLog({ type: 'info', text: `❌ ${e.message}` });
@@ -78,7 +84,8 @@ export default function DesktopApp() {
       setPetState('happy');
       setMessage('太棒了！你最棒！');
       setActions([]);
-      setStats(s => ({ ...s, mood: Math.min(100, s.mood + 10) }));
+      recordHabitDone();
+      if (petState === 'rainy') recordRainInteraction();
     } else {
       setPetState('normal');
       setMessage('');
@@ -87,9 +94,9 @@ export default function DesktopApp() {
   }
 
   const NURTURE = [
-    { id: 'feed',  emoji: '🍎', label: '喂食', fn: () => setStats(s => ({ ...s, hunger: Math.min(100, s.hunger + 10) })) },
-    { id: 'groom', emoji: '✨', label: '梳毛', fn: () => setStats(s => ({ ...s, mood:   Math.min(100, s.mood   + 5)  })) },
-    { id: 'play',  emoji: '🎮', label: '玩耍', fn: () => { setPetState('happy'); setTimeout(() => setPetState(petState), 1500); setStats(s => ({ ...s, mood: Math.min(100, s.mood + 15) })); } },
+    { id: 'feed',  emoji: '🍎', label: '喂食', fn: () => nurture({ effect: 'hunger', delta: 10 }) },
+    { id: 'groom', emoji: '✨', label: '梳毛', fn: () => nurture({ effect: 'mood',   delta: 5  }) },
+    { id: 'play',  emoji: '🎮', label: '玩耍', fn: () => { const p = petState; nurture({ effect: 'happy', delta: 15 }); setPetState('happy'); setTimeout(() => setPetState(p), 1500); } },
   ];
 
   return (

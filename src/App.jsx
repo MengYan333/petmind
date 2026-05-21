@@ -6,6 +6,8 @@ import NurtureMenu from './components/NurtureMenu';
 import DesktopApp from './components/DesktopApp';
 import { useSensors } from './hooks/useSensors';
 import { runAgent } from './services/claudeAgent';
+import { useGrowthSystem } from './hooks/useGrowthSystem';
+import GrowthPanel from './components/GrowthPanel';
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
@@ -27,9 +29,11 @@ function WebApp() {
   const [newsHeadlines, setNewsHeadlines] = useState('');
   const [logs, setLogs] = useState([]);
   const [isThinking, setIsThinking] = useState(false);
-  const [stats, setStats] = useState({ hunger: 70, mood: 80 });
+  const {
+    stats, stage, completionRate, unlockedAchievements,
+    nurture, recordHabitDone, recordLearnRead, recordRainInteraction,
+  } = useGrowthSystem();
   const [lastRun, setLastRun] = useState(null);
-  const [prevPetState, setPrevPetState] = useState('normal');
 
   const addLog = useCallback((log) => {
     setLogs(prev => [...prev.slice(-20), log]);
@@ -48,7 +52,10 @@ function WebApp() {
         setMessage(petDecision.message);
         setActions(petDecision.actions);
       }
-      if (summary) setLearningSummary(summary);
+      if (summary) {
+        setLearningSummary(summary);
+        recordLearnRead();
+      }
       if (news) setNewsHeadlines(news);
       setLastRun(new Date());
     } catch (e) {
@@ -70,7 +77,8 @@ function WebApp() {
       setPetState('happy');
       setMessage('太棒了！你最棒！');
       setActions([]);
-      setStats(s => ({ ...s, mood: Math.min(100, s.mood + 10) }));
+      recordHabitDone();
+      if (petState === 'rainy') recordRainInteraction();
     } else {
       setPetState('normal');
       setMessage('');
@@ -79,15 +87,10 @@ function WebApp() {
   }
 
   function handleNurture(action) {
-    setPrevPetState(petState);
-    setStats(prev => {
-      const next = { ...prev };
-      if (action.effect === 'hunger') next.hunger = Math.min(100, prev.hunger + action.delta);
-      if (action.effect === 'mood' || action.effect === 'happy') next.mood = Math.min(100, prev.mood + action.delta);
-      return next;
-    });
+    const prev = petState;
+    nurture(action);
     setPetState('happy');
-    setTimeout(() => setPetState(prevPetState), 1500);
+    setTimeout(() => setPetState(prev), 1500);
   }
 
   return (
@@ -116,10 +119,15 @@ function WebApp() {
         />
       </div>
 
-      {/* Nurture */}
       <div className="mt-6">
         <NurtureMenu stats={stats} onAction={handleNurture} />
       </div>
+
+      <GrowthPanel
+        stage={stage}
+        completionRate={completionRate}
+        unlockedAchievements={unlockedAchievements}
+      />
 
       {/* Manual trigger */}
       <button
