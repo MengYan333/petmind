@@ -1,78 +1,70 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
 import { useSensors } from '../hooks/useSensors';
-import { runAgent, chatWithPet } from '../services/claudeAgent';
-import { useGrowthSystem } from '../hooks/useGrowthSystem';
+import { useActivityLog } from '../hooks/useActivityLog';
+import { useStateInference } from '../hooks/useStateInference';
+import { useSkillManager } from '../hooks/useSkillManager';
+import { useMemory } from '../hooks/useMemory';
+import { useTaskPool } from '../hooks/useTaskPool';
+import CatSVG from './CatSVG';
+import SkillBubble from './SkillBubble';
+import DailyPlan from './DailyPlan';
+import TaskList from './TaskList';
+import TaskInput from './TaskInput';
+import AgentDebug from './AgentDebug';
 
-const STATE_IMG = {
-  normal:   '/cat_normal.png',
-  happy:    '/cat_normal.png',
-  rainy:    '/cat_normal.png',
-  news:     '/cat_normal.png',
-  learning: '/cat_learning.png',
-  exercise: '/cat_exercise.png',
-  sleepy:   '/cat_sleepy.png',
-  thirsty:  '/cat_thirsty.png',
-  hot:      '/cat_thirsty.png',
-};
+const STATE_SIZE = { w: 110, h: 138 };
+const PANEL_W = 320;
+const PANEL_H = 520;
 
-const STATE_SIZE = {
-  default: { w: 110, h: 138 },
-  sleepy:  { w: 150, h: 119 },
-};
-
-const DEFAULT_HABITS = [
-  { id: 'water',   label: '喝水',   intervalHours: 2,  lastDone: null },
-  { id: 'stretch', label: '起身活动', intervalHours: 1,  lastDone: null },
-  { id: 'eyes',    label: '护眼休息', intervalHours: 1,  lastDone: null },
-];
-const DEFAULT_PREFS = { learningTopic: 'AI大模型', learningHour: 9 };
-
-const TABS = [
-  { id: 'today',  emoji: '📅', label: '今日' },
-  { id: 'remind', emoji: '🔔', label: '提醒' },
-  { id: 'chat',   emoji: '💬', label: '对话' },
+const PRIMARY_TABS = [
+  { id: 'today', label: '今日' },
+  { id: 'tasks', label: '任务' },
+  { id: 'chat', label: '对话' },
+  { id: 'debug', label: '调试' },
 ];
 
-const BUBBLE_W = 220;
-
-// Shared style tokens
 const S = {
-  text:    { color: 'rgba(255,255,255,0.88)' },
-  dimText: { color: 'rgba(255,255,255,0.4)' },
-  card:    { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 },
-  purple:  { background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)', color: 'rgba(168,85,247,0.95)' },
+  text: { color: 'rgba(55, 50, 45, 0.92)' },
+  dimText: { color: 'rgba(140, 132, 120, 0.78)' },
+  card: {
+    background: 'rgba(255, 253, 250, 0.8)',
+    border: '1px solid rgba(220, 214, 204, 0.5)',
+    borderRadius: 12,
+  },
+  accent: {
+    background: 'rgba(55, 50, 45, 0.9)',
+    border: 'none',
+    color: 'rgba(255, 253, 250, 0.95)',
+  },
 };
 
 export default function DesktopApp() {
   const sensors = useSensors();
-  const [petState, setPetState]     = useState('normal');
-  const [message, setMessage]       = useState('');
-  const [isThinking, setIsThinking] = useState(false);
-  const [bubbleOpen, setBubbleOpen] = useState(false);
-  const [activeTab, setActiveTab]   = useState('today');
-  const [newsContent, setNewsContent] = useState('');
+  const activityLog = useActivityLog();
+  const memory = useMemory();
+  const taskPool = useTaskPool();
+  const inferredState = useStateInference(sensors, activityLog, memory, taskPool);
+  const { runLoop, runSkill, runParse, executeChat, lastResult, isRunning, logs } = useSkillManager(sensors, inferredState, activityLog, memory, taskPool);
+
+  const [petState, setPetState] = useState('normal');
+  const [message, setMessage] = useState('');
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [primaryTab, setPrimaryTab] = useState('today');
+  const [taskView, setTaskView] = useState('list'); // list | input
+  const [skillBubbleVisible, setSkillBubbleVisible] = useState(false);
   const [sw, setSw] = useState(1280);
   const [sh, setSh] = useState(752);
-
-  // Chat state
-  const [chatMsgs, setChatMsgs]   = useState([]);
+  const [chatMsgs, setChatMsgs] = useState([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatBusy, setChatBusy]   = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [lastParseResult, setLastParseResult] = useState(null);
+
   const chatEndRef = useRef(null);
-
-  // Habit done timestamps
-  const [habitDone, setHabitDone] = useState({});
-
   const catX = useMotionValue(200);
   const catY = useMotionValue(600);
-  const [bubblePos, setBubblePos] = useState({ left: 200, top: 400 });
-
-  const triggerAgentRef = useRef(null);
-  const nurtureTimerRef = useRef(null);
-  const bubbleTimerRef  = useRef(null);
-  const { nurture, recordLearnRead } = useGrowthSystem();
-  const addLog = useCallback(() => {}, []);
+  const bubbleTimerRef = useRef(null);
+  const skillBubbleTimerRef = useRef(null);
 
   useEffect(() => {
     async function init() {
@@ -80,40 +72,17 @@ export default function DesktopApp() {
       let height = window.innerHeight;
       if (window.electronAPI?.getScreenSize) {
         const s = await window.electronAPI.getScreenSize();
-        width = s.width; height = s.height;
+        width = s.width;
+        height = s.height;
       }
-      setSw(width); setSh(height);
-      const startX = width - 160;
-      const startY = height - 160;
-      catX.set(startX); catY.set(startY);
-      setBubblePos({ left: startX, top: startY - 260 });
+      setSw(width);
+      setSh(height);
+      catX.set(width - 160);
+      catY.set(height - 160);
     }
     init();
   }, []);
 
-  async function triggerAgent() {
-    if (isThinking) return;
-    setIsThinking(true);
-    try {
-      const { petDecision, learningSummary: summary, newsHeadlines: news } = await runAgent(
-        sensors, DEFAULT_HABITS, DEFAULT_PREFS, addLog
-      );
-      if (petDecision) { setPetState(petDecision.state); setMessage(petDecision.message); }
-      if (summary) recordLearnRead();
-      if (news) setNewsContent(news);
-    } catch { setMessage('出错了，稍后再试～'); }
-    finally { setIsThinking(false); }
-  }
-
-  triggerAgentRef.current = triggerAgent;
-
-  useEffect(() => {
-    triggerAgentRef.current?.();
-    const id = setInterval(() => triggerAgentRef.current?.(), 10 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Mouse-through: document mousemove + elementFromPoint
   useEffect(() => {
     function onMove(e) {
       const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -123,172 +92,307 @@ export default function DesktopApp() {
     return () => document.removeEventListener('mousemove', onMove);
   }, []);
 
-  useEffect(() => () => {
-    clearTimeout(nurtureTimerRef.current);
-    clearTimeout(bubbleTimerRef.current);
+  // Lower window level when input/textarea is focused so system IME shows above
+  useEffect(() => {
+    function onFocusIn(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        window.electronAPI?.setInputFocused(true);
+      }
+    }
+    function onFocusOut(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        window.electronAPI?.setInputFocused(false);
+      }
+    }
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+    };
   }, []);
 
-  // Scroll chat to bottom when new message arrives
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);
 
-  function updateBubblePos() {
-    const x = catX.get(); const y = catY.get();
-    const size = petState === 'sleepy' ? STATE_SIZE.sleepy : STATE_SIZE.default;
-    const POPUP_H = 260;
-    const left = Math.max(8, Math.min(x + size.w / 2 - BUBBLE_W / 2, sw - BUBBLE_W - 8));
-    const top  = Math.max(8, y - POPUP_H - 10);
-    setBubblePos({ left, top });
-  }
+  useEffect(() => {
+    const run = async () => {
+      const result = await runLoop();
+      if (result) {
+        // 过滤"无需行动"类消息，不展示弹窗
+        const noActionPhrases = ['无需行动', '不需要', '没有需要', '保持现状'];
+        if (noActionPhrases.some(p => result.message?.includes(p))) return;
+        setPetState(result.petState);
+        setMessage(result.message);
+        setSkillBubbleVisible(true);
+        clearTimeout(skillBubbleTimerRef.current);
+        skillBubbleTimerRef.current = setTimeout(() => setSkillBubbleVisible(false), 15000);
+      }
+    };
+    run();
+    const id = setInterval(run, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [runLoop]);
+
+  useEffect(() => () => {
+    clearTimeout(bubbleTimerRef.current);
+    clearTimeout(skillBubbleTimerRef.current);
+  }, []);
+
+  // 当技能执行产生有意义的结果时，自动弹窗
+  useEffect(() => {
+    if (!lastResult) return;
+    // 跳过意图解析（它在 TaskInput 里处理预览，不需要弹窗）
+    if (lastResult.skillId === 'intent_parser') return;
+    // 跳过对话（它在 ChatTab 里展示）
+    if (lastResult.skillId === 'chat') return;
+    // 有 message 或 actions 才弹窗
+    if (!lastResult.message && !lastResult.actions?.length) return;
+    setPetState(lastResult.petState || 'normal');
+    setMessage(lastResult.message);
+    setSkillBubbleVisible(true);
+    clearTimeout(skillBubbleTimerRef.current);
+    skillBubbleTimerRef.current = setTimeout(() => setSkillBubbleVisible(false), 15000);
+  }, [lastResult]);
+
+  // Cat visual responds to inferred state (when no skill is actively controlling it)
+  useEffect(() => {
+    if (!inferredState || skillBubbleVisible) return;
+    const stateMap = {
+      sleeping: 'sleepy',
+      idle: 'normal',
+      working: 'working',
+    };
+    const mapped = stateMap[inferredState.primary] || 'normal';
+    setPetState(mapped);
+    if (inferredState.secondary === 'break_needed') {
+      setPetState('exercise');
+    }
+    if (inferredState.secondary === 'has_ideas') {
+      setPetState('thinking');
+    }
+  }, [inferredState, skillBubbleVisible]);
 
   function handleCatClick() {
-    updateBubblePos();
-    if (bubbleOpen) {
-      setBubbleOpen(false);
+    if (panelOpen) {
+      setPanelOpen(false);
       clearTimeout(bubbleTimerRef.current);
     } else {
-      setBubbleOpen(true);
-      // No auto-close when chat tab is open
-      if (activeTab !== 'chat') {
-        bubbleTimerRef.current = setTimeout(() => setBubbleOpen(false), 12000);
+      setPanelOpen(true);
+      setSkillBubbleVisible(false);
+    }
+  }
+
+  function handleCatContextMenu(e) {
+    e.preventDefault();
+    if (window.electronAPI?.quitApp) window.electronAPI.quitApp();
+    else window.close();
+  }
+
+  function closePanel() {
+    setPanelOpen(false);
+    clearTimeout(bubbleTimerRef.current);
+  }
+
+  function handleSkillAction(action) {
+    if (action.includes('开始做') || action.includes('好的')) {
+      if (lastResult?.data?.taskId) {
+        taskPool.setTaskStatus(lastResult.data.taskId, 'active');
       }
     }
-  }
-
-  function closeBubble() {
-    setBubbleOpen(false);
-    clearTimeout(bubbleTimerRef.current);
-  }
-
-  function switchTab(id) {
-    setActiveTab(id);
-    clearTimeout(bubbleTimerRef.current);
-    // No auto-close for chat
-    if (id !== 'chat') {
-      bubbleTimerRef.current = setTimeout(() => setBubbleOpen(false), 12000);
+    if (action.includes('等会儿') || action.includes('跳过')) {
+      if (lastResult?.data?.taskId) {
+        taskPool.setTaskStatus(lastResult.data.taskId, 'snoozed');
+      }
     }
+    if (action.includes('查看今日计划')) {
+      setPrimaryTab('today');
+      setPanelOpen(true);
+    }
+    if (action.includes('谢谢总结') || action.includes('谢谢')) {
+      setPetState('happy');
+      setTimeout(() => setPetState('normal'), 2000);
+    }
+    setSkillBubbleVisible(false);
   }
 
-  // 喂食
-  function handleFeed() {
-    nurture({ effect: 'hunger', delta: 15 });
-    const prev = petState;
-    setPetState('happy');
-    setMessage('谢谢主人！好吃～ 🎉');
-    nurtureTimerRef.current = setTimeout(() => setPetState(prev), 2500);
-  }
-
-  // 提醒：mark habit done
-  function handleHabitDone(id) {
-    setHabitDone(prev => ({ ...prev, [id]: Date.now() }));
-    nurture({ effect: 'mood', delta: 5 });
-  }
-
-  // 对话：send message
   async function handleChatSend() {
     const text = chatInput.trim();
     if (!text || chatBusy) return;
     setChatInput('');
     setChatMsgs(prev => [...prev, { role: 'user', text }]);
+    activityLog.log('chat');
     setChatBusy(true);
+
     try {
-      const reply = await chatWithPet(text, chatMsgs);
-      setChatMsgs(prev => [...prev, { role: 'pet', text: reply }]);
-    } catch {
-      setChatMsgs(prev => [...prev, { role: 'pet', text: '喵... 网络出了点问题 😿' }]);
+      const result = await executeChat(text, chatMsgs);
+
+      if (result) {
+        setChatMsgs(prev => [...prev, { role: 'pet', text: result.message }]);
+      } else {
+        setChatMsgs(prev => [...prev, { role: 'pet', text: '抱歉，我没有理解你的意思。' }]);
+      }
+    } catch (err) {
+      console.error('[chat] error:', err);
+      setChatMsgs(prev => [...prev, { role: 'pet', text: `连接出错: ${err.message || '未知错误'}` }]);
     } finally {
       setChatBusy(false);
     }
   }
 
-  const size   = petState === 'sleepy' ? STATE_SIZE.sleepy : STATE_SIZE.default;
-  const imgSrc = STATE_IMG[petState] || STATE_IMG.normal;
+  function handleAddTask(data) {
+    taskPool.addTask(data);
+    setLastParseResult(data);
+    setTaskView('list');
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'transparent', pointerEvents: 'none' }}>
-
-      {/* Cat */}
       <motion.div
         data-interactive
-        drag dragMomentum={false} dragElastic={0.05}
-        dragConstraints={{ left: 0, top: 0, right: sw - size.w, bottom: sh - size.h }}
-        style={{ x: catX, y: catY, position: 'absolute', top: 0, left: 0, width: size.w,
-          cursor: 'grab', userSelect: 'none', pointerEvents: 'auto' }}
+        drag
+        dragMomentum={false}
+        dragElastic={0.05}
+        dragConstraints={{ left: 0, top: 0, right: sw - STATE_SIZE.w, bottom: sh - STATE_SIZE.h }}
+        style={{
+          x: catX, y: catY,
+          position: 'absolute', top: 0, left: 0,
+          width: STATE_SIZE.w, cursor: 'grab', userSelect: 'none', pointerEvents: 'auto',
+        }}
         whileDrag={{ cursor: 'grabbing', scale: 1.06 }}
-        onDragEnd={updateBubblePos}
         onClick={handleCatClick}
+        onContextMenu={handleCatContextMenu}
       >
-        <img src={imgSrc} alt="pet" width={size.w} height={size.h}
-          style={{ display: 'block', pointerEvents: 'none', userSelect: 'none' }}
-          draggable={false} />
-        {isThinking && (
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-            style={{ position: 'absolute', top: -4, right: -4, fontSize: 16, pointerEvents: 'none' }}>⚙️</motion.div>
+        <CatSVG state={petState} isThinking={isRunning} />
+        {isRunning && (
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            style={{ position: 'absolute', top: -4, right: -4, fontSize: 16, pointerEvents: 'none' }}
+          >
+            ⚙️
+          </motion.div>
         )}
       </motion.div>
 
-      {/* Bubble */}
+      <SkillBubble
+        skillResult={lastResult}
+        visible={skillBubbleVisible}
+        onClose={() => setSkillBubbleVisible(false)}
+        onAction={handleSkillAction}
+      />
+
       <AnimatePresence>
-        {bubbleOpen && (
+        {panelOpen && (
           <motion.div
             data-interactive
-            key="bubble"
+            key="panel"
             initial={{ opacity: 0, y: 8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.95 }}
             transition={{ duration: 0.16 }}
             style={{
-              position: 'absolute', left: bubblePos.left, top: bubblePos.top,
-              width: BUBBLE_W,
-              background: 'rgba(13,13,26,0.96)',
-              border: '1px solid rgba(168,85,247,0.35)',
-              borderRadius: 18,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.8), 0 0 24px rgba(168,85,247,0.1)',
-              backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-              padding: '12px 12px 10px',
-              zIndex: 9999, pointerEvents: 'auto',
+              position: 'absolute',
+              left: Math.max(8, Math.min(catX.get() + STATE_SIZE.w / 2 - PANEL_W / 2, sw - PANEL_W - 8)),
+              top: Math.max(8, Math.min(catY.get() - PANEL_H - 20, sh - PANEL_H - 8)),
+              width: PANEL_W, height: PANEL_H,
+              background: 'rgba(252, 250, 247, 0.98)',
+              border: '1px solid rgba(210, 204, 194, 0.6)',
+              borderRadius: 16,
+              boxShadow: '0 24px 64px rgba(50, 44, 38, 0.12), 0 8px 24px rgba(50, 44, 38, 0.06)',
+              backdropFilter: 'blur(24px)',
+              padding: '0 16px 14px',
+              zIndex: 9999,
+              pointerEvents: 'auto',
+              display: 'flex', flexDirection: 'column',
             }}
           >
-            {/* Close */}
-            <button onClick={closeBubble} style={{
-              position: 'absolute', top: 8, right: 10, background: 'none', border: 'none',
-              ...S.dimText, fontSize: 13, cursor: 'pointer', lineHeight: 1, padding: 2,
-            }}>✕</button>
-
-            {/* Pet message */}
-            <p style={{ ...S.text, fontSize: 12, lineHeight: 1.6, textAlign: 'center',
-              margin: '0 0 10px', paddingRight: 16, minHeight: 20 }}>
-              {isThinking ? '⚙️ 思考中...' : (message || '嗨主人！今天怎么样？')}
-            </p>
-
-            {/* Tab bar */}
-            <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {TABS.map(t => (
-                <button key={t.id} onClick={() => switchTab(t.id)} style={{
-                  flex: 1, padding: '5px 0', borderRadius: 9, fontSize: 11,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                  ...(activeTab === t.id
-                    ? { background: 'rgba(168,85,247,0.22)', border: '1px solid rgba(168,85,247,0.5)', color: 'rgba(168,85,247,1)' }
-                    : { ...S.card, ...S.dimText }),
-                }}>
-                  {t.emoji} {t.label}
+            {/* Tabs */}
+            <div style={{
+              display: 'flex', gap: 0, margin: '0 -16px 14px', padding: '0 12px',
+              borderBottom: '1px solid rgba(210, 204, 194, 0.35)',
+            }}>
+              {PRIMARY_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => { setPrimaryTab(tab.id); if (tab.id === 'tasks') setTaskView('list'); }}
+                  style={{
+                    minWidth: 0, padding: '10px 10px 11px',
+                    fontSize: 11, cursor: 'pointer', transition: 'all 0.15s',
+                    whiteSpace: 'nowrap', background: 'none',
+                    border: 'none',
+                    color: primaryTab === tab.id ? 'rgba(55, 50, 45, 0.92)' : 'rgba(140, 132, 120, 0.6)',
+                    fontWeight: primaryTab === tab.id ? 600 : 400,
+                    borderBottom: primaryTab === tab.id ? '2px solid rgba(55, 50, 45, 0.85)' : '2px solid transparent',
+                    marginBottom: '-1px',
+                  }}
+                >
+                  {tab.label}
                 </button>
               ))}
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={closePanel}
+                style={{
+                  padding: '10px 2px 11px', background: 'none', border: 'none',
+                  color: 'rgba(140, 132, 120, 0.45)', fontSize: 13, cursor: 'pointer',
+                  lineHeight: 1, marginBottom: '-1px',
+                  borderBottom: '2px solid transparent',
+                }}
+              >×</button>
             </div>
 
             {/* Tab content */}
-            {activeTab === 'today' && (
-              <TodayTab onFeed={handleFeed} petState={petState} newsContent={newsContent} />
-            )}
-            {activeTab === 'remind' && <RemindTab habits={DEFAULT_HABITS} done={habitDone} onDone={handleHabitDone} />}
-            {activeTab === 'chat' && (
-              <ChatTab
-                msgs={chatMsgs} busy={chatBusy}
-                input={chatInput} onInput={setChatInput}
-                onSend={handleChatSend} endRef={chatEndRef}
-              />
-            )}
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {primaryTab === 'chat' && (
+                <ChatTab
+                  msgs={chatMsgs} busy={chatBusy} input={chatInput}
+                  onInput={setChatInput} onSend={handleChatSend} endRef={chatEndRef}
+                />
+              )}
+
+              {primaryTab === 'today' && (
+                <DailyPlan
+                  tasks={taskPool.tasks}
+                  memory={memory}
+                  onToggleStep={taskPool.toggleStep}
+                  onSetStatus={taskPool.setTaskStatus}
+                  onOpenTaskTab={() => setPrimaryTab('tasks')}
+                  onGeneratePlan={() => runSkill('plan_generator')}
+                  onGenerateReflection={() => runSkill('daily_reflection')}
+                />
+              )}
+
+              {primaryTab === 'tasks' && (
+                taskView === 'input' ? (
+                  <TaskInput onAdd={handleAddTask} onBack={() => setTaskView('list')} onParse={runParse} />
+                ) : (
+                  <TaskList
+                    tasks={taskPool.tasks}
+                    onRemove={taskPool.removeTask}
+                    onSetStatus={taskPool.setTaskStatus}
+                    onToggleStep={taskPool.toggleStep}
+                    onOpenInput={() => setTaskView('input')}
+                  />
+                )
+              )}
+
+              {primaryTab === 'debug' && (
+                <AgentDebug
+                  logs={logs}
+                  isRunning={isRunning}
+                  inferredState={inferredState}
+                  lastResult={lastResult}
+                  taskPool={taskPool}
+                  lastParseResult={lastParseResult}
+                  sensors={sensors}
+                  activityLog={activityLog}
+                  memory={memory}
+                  onShowBubble={() => setSkillBubbleVisible(true)}
+                />
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -296,125 +400,79 @@ export default function DesktopApp() {
   );
 }
 
-/* ── Tab: 今日 ── */
-function TodayTab({ onFeed, petState, newsContent }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {newsContent && (
-        <div style={{
-          padding: '7px 9px', borderRadius: 10,
-          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-        }}>
-          <p style={{ ...S.dimText, fontSize: 10, marginBottom: 4 }}>📰 早报</p>
-          {newsContent.split('\n').filter(l => l.trim()).map((line, i) => (
-            <p key={i} style={{ ...S.text, fontSize: 11, lineHeight: 1.55, margin: '2px 0' }}>{line}</p>
-          ))}
-        </div>
-      )}
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 30, marginBottom: 4 }}>
-          {petState === 'happy' ? '😸' : '🐱'}
-        </div>
-        <p style={{ ...S.dimText, fontSize: 11, marginBottom: 8 }}>
-          {petState === 'happy' ? '吃得好开心～ (=^▽^=)' : '肚子有点饿了喵～'}
-        </p>
-        <button onClick={onFeed} style={{
-          width: '100%', padding: '6px 0', borderRadius: 10, fontSize: 12,
-          cursor: 'pointer', ...S.purple,
-        }}>
-          🍎 喂食
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── Tab: 提醒 ── */
-function RemindTab({ habits, done, onDone }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {habits.map(h => {
-        const doneAt = done[h.id];
-        const isDone = doneAt && (Date.now() - doneAt) < h.intervalHours * 3600 * 1000;
-        const nextIn = doneAt
-          ? Math.max(0, Math.ceil((doneAt + h.intervalHours * 3600 * 1000 - Date.now()) / 60000))
-          : null;
-        return (
-          <div key={h.id} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '6px 8px', borderRadius: 10,
-            background: isDone ? 'rgba(74,222,128,0.08)' : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${isDone ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.1)'}`,
-          }}>
-            <div>
-              <span style={{ ...S.text, fontSize: 12 }}>{h.label}</span>
-              <span style={{ ...S.dimText, fontSize: 10, marginLeft: 5 }}>
-                {isDone ? `${nextIn}分钟后提醒` : `每${h.intervalHours}小时`}
-              </span>
-            </div>
-            {isDone
-              ? <span style={{ fontSize: 14 }}>✅</span>
-              : <button onClick={() => onDone(h.id)} style={{
-                  padding: '2px 8px', borderRadius: 7, fontSize: 10, cursor: 'pointer',
-                  background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)',
-                  color: 'rgba(74,222,128,0.9)',
-                }}>完成</button>
-            }
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ── Tab: 对话 ── */
 function ChatTab({ msgs, busy, input, onInput, onSend, endRef }) {
   function onKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
   }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {/* Message list */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
       <div style={{
-        height: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5,
-        padding: '4px 2px',
-        scrollbarWidth: 'none',
+        flex: 1, minHeight: 0, overflowY: 'auto',
+        display: 'flex', flexDirection: 'column', gap: 6,
+        padding: '8px 6px', borderRadius: 12,
+        background: 'rgba(255,255,255,0.52)',
+        border: '1px solid rgba(208, 198, 184, 0.72)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)',
+        scrollbarWidth: 'thin',
       }}>
         {msgs.length === 0 && (
-          <p style={{ ...S.dimText, fontSize: 11, textAlign: 'center', marginTop: 36 }}>
-            跟我说说话吧 ฅ^•ﻌ•^ฅ
+          <p style={{ color: 'rgba(124, 115, 104, 0.84)', fontSize: 11, textAlign: 'center', marginTop: 72, lineHeight: 1.7 }}>
+            和我聊聊你今天的想法，
+            <br />
+            或者告诉我你想调整什么计划。
           </p>
         )}
         {msgs.map((m, i) => (
           <div key={i} style={{
             alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '80%', padding: '4px 8px', borderRadius: 10, fontSize: 11, lineHeight: 1.5,
+            maxWidth: '86%', padding: '7px 9px', borderRadius: 14,
+            fontSize: 11, lineHeight: 1.6,
             ...(m.role === 'user'
-              ? { background: 'rgba(168,85,247,0.22)', border: '1px solid rgba(168,85,247,0.35)', color: 'rgba(220,200,255,0.95)' }
-              : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', ...S.text }),
-          }}>{m.text}</div>
+              ? { background: 'rgba(163, 221, 212, 0.62)', border: '1px solid rgba(108, 170, 160, 0.7)', color: 'rgba(40, 64, 61, 0.94)' }
+              : { background: 'rgba(255,255,255,0.74)', border: '1px solid rgba(208, 198, 184, 0.72)', color: 'rgba(70, 66, 59, 0.94)' }),
+          }}>
+            {m.text}
+          </div>
         ))}
         {busy && (
-          <div style={{ alignSelf: 'flex-start', ...S.dimText, fontSize: 11 }}>喵~...</div>
+          <div style={{ alignSelf: 'flex-start', color: 'rgba(123, 116, 106, 0.84)', fontSize: 11 }}>
+            正在思考...
+          </div>
         )}
         <div ref={endRef} />
       </div>
 
-      {/* Input */}
-      <div style={{ display: 'flex', gap: 4 }}>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         <input
-          value={input} onChange={e => onInput(e.target.value)} onKeyDown={onKey}
-          placeholder="说点什么..."
+          value={input}
+          onChange={e => onInput(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="说说你的想法，或让我帮你调整计划"
           style={{
-            flex: 1, padding: '5px 8px', borderRadius: 9, fontSize: 11,
-            background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)',
-            color: 'rgba(255,255,255,0.9)', outline: 'none',
+            flex: 1, padding: '8px 10px', borderRadius: 12, fontSize: 11,
+            background: 'rgba(255,255,255,0.72)',
+            border: '1px solid rgba(208, 198, 184, 0.78)',
+            color: 'rgba(72, 66, 58, 0.94)', outline: 'none',
           }}
         />
-        <button onClick={onSend} disabled={busy || !input.trim()} style={{
-          padding: '5px 9px', borderRadius: 9, fontSize: 12, cursor: busy ? 'not-allowed' : 'pointer',
-          ...S.purple, opacity: busy || !input.trim() ? 0.4 : 1,
-        }}>↑</button>
+        <button
+          onClick={onSend}
+          disabled={busy || !input.trim()}
+          style={{
+            padding: '8px 12px', borderRadius: 12, fontSize: 11,
+            cursor: busy || !input.trim() ? 'not-allowed' : 'pointer',
+            opacity: busy || !input.trim() ? 0.5 : 1,
+            background: 'linear-gradient(180deg, rgba(163, 221, 212, 0.92), rgba(133, 203, 191, 0.96))',
+            border: '1px solid rgba(108, 170, 160, 0.88)',
+            color: 'rgba(40, 64, 61, 0.94)',
+          }}
+        >
+          发送
+        </button>
       </div>
     </div>
   );

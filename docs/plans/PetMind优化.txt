@@ -1,0 +1,8 @@
+PetMind 下一阶段升级为一个“持续运行的环境感知型桌面 AI Agent”，核心不是增强聊天能力，而是构建由“环境信号驱动 + 行为数据驱动 + Skill模块化执行 + Agent决策循环”组成的系统，使 AI 从被动响应工具演进为具备持续存在感与主动行为能力的桌面伴侣。系统运行基于三类输入：
+①环境信号（时间、天气、屏幕活跃度、窗口状态、鼠标键盘行为）；
+②用户显式行为（聊天内容、习惯配置、主动触发的学习与查询请求）；
+③系统历史数据（长期行为统计、偏好与习惯完成记录），这些信号共同构成用户当前状态，并由状态推断模块生成 working / idle / learning / resting 等抽象状态，用于驱动 Agent 决策而非依赖大模型主观判断。
+在此基础上，Agent通过统一决策循环（observe → intent classification → state inference → skill selection → tool calling → memory update → act）运行，核心能力被拆分为可复用 Skill 模块而非功能堆叠，其中包括 
+News Digest Skill（定时生成结构化新闻摘要）、Learning Coach Skill（对用户学习行为进行结构化聚合与总结）、Wellness Skill（基于久坐与低活跃状态进行健康提醒）、Emotion Companion Skill（基于用户情绪输入生成陪伴反馈）以及 Reflection Skill（每日自动生成用户行为与习惯完成情况总结）。
+Learning Coach Skill 的本质不是对内容进行简单摘要，而是基于系统记录的学习行为日志（如窗口类型、学习应用、对话内容、学习时长等）进行结构化聚类，输出按主题归纳的学习内容、学习时长统计、学习状态评估（专注/碎片化/低效）以及下一步建议；其触发方式包括用户主动询问、学习状态识别（如长期停留在Notion/Docs/PDF/IDE等学习类环境）以及每日定时总结（如22:30自动生成）。
+习惯系统则从“提醒功能”升级为行为对齐系统，用户通过 Habit Panel 配置习惯目标（如喝水每2小时一次、休息每1小时一次），系统通过 Activity Log System 记录行为事件（如drink、idle、active等），并基于时间窗口进行匹配计算以判断习惯是否完成（如在2小时窗口内存在drink事件即完成一次），从而生成每日完成率与偏差分析。最终系统展示分为三层：Chat窗口用于用户交互与Skill输出，Dashboard用于展示状态、习惯完成情况与每日总结，Agent Debug面板用于展示intent、skill选择、tool调用与memory更新过程；Skill触发方式统一分为事件触发（idle、时间、环境变化）、状态触发（learning/idle等）以及对话触发（用户输入）。整体系统的最终目标不是构建聊天机器人，而是构建一个具备环境感知、行为推断、技能化执行与主动行为能力的持续运行桌面 AI Agent。
