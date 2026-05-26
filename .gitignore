@@ -30,3 +30,7 @@ dist-ssr
 # Debug
 .electron-debug.log
 .claude/
+
+# Local dev artifacts (not needed for repo)
+docs/
+src/skills/
