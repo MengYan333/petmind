@@ -1,16 +1,33 @@
-# React + Vite
+# PetMind
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+桌面 AI 宠物助手 — 一只住在你桌面上的猫，帮你管理任务、规划日程、提醒休息。
 
-Currently, two official plugins are available:
+## 功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **桌面悬浮猫咪**：透明窗口，始终置顶，可拖拽，右键退出
+- **自然语言任务**：输入一句话，AI 理解意图并拆解步骤
+- **今日规划**：AI 从任务池生成时间段日程
+- **任务提醒**：根据屏幕使用和空闲状态主动提醒
+- **每日总结**：晚间回顾完成情况，给出明天建议
+- **优先级决策**：综合分析推荐当前最该做的事
+- **对话助手**：与 AI 自然对话管理任务和调研
 
-## React Compiler
+## 技术栈
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React + Vite
+- Electron (桌面应用)
+- DashScope API (qwen3.7-max-preview)
+- Framer Motion (动画)
 
-## Expanding the ESLint configuration
+## 启动
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev
+```
+
+## 构建
+
+```bash
+npm run build
+```
