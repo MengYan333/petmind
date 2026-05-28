@@ -1,4 +1,5 @@
 # PetMind
+介绍视频：https://www.bilibili.com/video/BV1zMG96SERV/?vd_source=8494b9583edd21f583044d60ad37d6a0
 
 - 桌面 AI Agent — 日程决策引擎，不是日程记录工具。
 - 用户只需要说出想法，PetMind 负责理解、拆解、决策、准备。
